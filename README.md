@@ -12,6 +12,23 @@ A terminal order book viewer for Polymarket markets.
 - View bids, asks, cumulative depth, spread, tick size, and update timestamp
 - Adjust price aggregation while the book is live
 
+## Architecture
+
+For the full architecture notes, see [src/ARCHITECTURE.md](src/ARCHITECTURE.md).
+
+| Module | Responsibility |
+| --- | --- |
+| [`src/main.rs`](src/main.rs) | Parses CLI arguments, resolves an optional slug, and drives the search/view loop. |
+| [`src/app.rs`](src/app.rs) | Owns the live market TUI loop, terminal lifecycle, key handling, and websocket task wiring. |
+| [`src/gamma.rs`](src/gamma.rs) | Wraps Polymarket Gamma API calls for market lookup and active event search. |
+| [`src/orderbook.rs`](src/orderbook.rs) | Applies websocket book snapshots to `AppState` and maintains inferred trade events. |
+| [`src/picker.rs`](src/picker.rs) | Implements the interactive event and market selection prompts. |
+| [`src/prompt.rs`](src/prompt.rs) | Provides the shared stdin prompt helper. |
+| [`src/render.rs`](src/render.rs) | Renders the Ratatui order book, header, status lines, volume bars, and trade tape. |
+| [`src/session.rs`](src/session.rs) | Converts a Gamma market into the initial `MarketSession` and `AppState`. |
+| [`src/types.rs`](src/types.rs) | Defines shared state, event/search structs, constants, and control-flow enums. |
+| [`src/ws.rs`](src/ws.rs) | Subscribes to Polymarket CLOB websocket order book updates and forwards them over a channel. |
+
 ## Requirements
 
 - Rust toolchain with Cargo

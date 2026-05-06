@@ -62,6 +62,7 @@ pub async fn search_event_page(query: &str, page: i32) -> Result<EventSearchPage
         .search(
             &SearchRequest::builder()
                 .q(query)
+                .events_status("active".to_string())
                 .limit_per_type(SEARCH_PAGE_SIZE)
                 .page(page)
                 .keep_closed_markets(0)

@@ -2,13 +2,31 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use polymarket_client_sdk_v2::{gamma::types::response::Market, types::{Decimal, U256}};
+use polymarket_client_sdk_v2::{
+    gamma::types::response::Market,
+    types::{Decimal, U256},
+};
+
+#[derive(Clone)]
+pub enum TradeSide {
+    Buy,
+    Sell,
+}
+
+impl TradeSide {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Buy => "BUY",
+            Self::Sell => "SELL",
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct Trade {
     pub price: Decimal,
     pub size: Decimal,
-    pub side: &'static str, // "BUY" or "SELL"
+    pub side: TradeSide,
 }
 
 // ── STATE ───────────────────────────────────────

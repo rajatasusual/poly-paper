@@ -9,11 +9,12 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use futures::StreamExt;
-use polymarket_client_sdk_v2::gamma::types::{request::MarketBySlugRequest, response::Market};
 use polymarket_client_sdk_v2::{
-    clob::{types::response::ClobToken, ws::Client as wsClient},
-    gamma::Client as gammaClient,
-    types::U256,
+    clob::ws::Client as wsClient, gamma::Client as gammaClient, types::U256,
+};
+use polymarket_client_sdk_v2::{
+    clob::ws::{BookUpdate, types::response::OrderBookLevel},
+    gamma::types::{request::MarketBySlugRequest, response::Market}
 };
 use ratatui::{
     Terminal,
@@ -28,7 +29,7 @@ use tokio::sync::mpsc;
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
 #[derive(Parser)]
-#[command(about = "Polymarket orderbook TUI")]
+#[command(about = "Poly-Paper TUI")]
 struct Args {
     /// Market slug, e.g. "will-trump-win-2024"
     slug: String,
@@ -36,49 +37,16 @@ struct Args {
 
 // ── App state ─────────────────────────────────────────────────────────────────
 
-#[derive(Default)]
-struct OrderSide {
-    entries: Vec<(String, String)>, // (price, size)
-}
-
 struct AppState {
     slug: String,
     question: String,
     condition_id: String,
     tokens: Vec<String>,
     outcomes: Vec<String>,
-    bids: Vec<OrderSide>,
-    asks: Vec<OrderSide>,
+    bids: Vec<Vec<OrderBookLevel>>,
+    asks: Vec<Vec<OrderBookLevel>>,
     last_ts: String,
     status: String,
-}
-
-impl AppState {
-fn new(condition_id: String, slug: String, question: String, tokens: Vec<ClobToken>) -> Self {
-        let n = tokens.len();
-        let outcomes = tokens.iter().map(|t| t.outcome.clone()).collect();
-        let tokens = tokens.iter().map(|t| t.token_id.to_string()).collect();
-        Self {
-            slug,
-            question,
-            condition_id,
-            tokens,
-            outcomes,
-            bids: (0..n).map(|_| OrderSide::default()).collect(),
-            asks: (0..n).map(|_| OrderSide::default()).collect(),
-            last_ts: String::new(),
-            status: "Connecting...".into(),
-        }
-    }
-}
-
-// ── WS message ───────────────────────────────────────────────────────────────
-
-struct BookUpdate {
-    asset_id: String,
-    timestamp: String,
-    bids: Vec<(String, String)>,
-    asks: Vec<(String, String)>,
 }
 
 // ── Gamma + CLOB REST helpers ─────────────────────────────────────────────────
@@ -92,7 +60,6 @@ async fn resolve_market(slug: &str) -> Result<Market> {
 
     Ok(market)
 }
-
 
 // ── WebSocket task ────────────────────────────────────────────────────────────
 
@@ -109,35 +76,28 @@ async fn ws_task(asset_ids: Vec<String>, tx: mpsc::Sender<BookUpdate>) -> Result
     while let Some(result) = stream.next().await {
         match result {
             Ok(book) => {
-                let update = BookUpdate {
-                    asset_id: book.asset_id.to_string(),
-                    timestamp: book.timestamp.to_string(),
-                    bids: book
-                        .bids
-                        .iter()
-                        .take(10)
-                        .map(|b| (b.price.to_string(), b.size.to_string()))
-                        .collect(),
-                    asks: book
-                        .asks
-                        .iter()
-                        .take(10)
-                        .map(|a| (a.price.to_string(), a.size.to_string()))
-                        .collect(),
-                };
+                let bids: Vec<OrderBookLevel> = book.bids.iter().take(10).cloned().collect();
+                let asks: Vec<OrderBookLevel> = book.asks.iter().take(10).cloned().collect();
+                let update = BookUpdate::builder()
+                    .asset_id(book.asset_id)
+                    .timestamp(book.timestamp)
+                    .bids(bids)
+                    .asks(asks)
+                    .market(book.market)
+                    .build();
                 if tx.send(update).await.is_err() {
                     break;
                 }
             }
-            Err(e) => {
-                let _ = tx
-                    .send(BookUpdate {
-                        asset_id: String::new(),
-                        timestamp: format!("error: {e}"),
-                        bids: vec![],
-                        asks: vec![],
-                    })
-                    .await;
+            Err(_) => {
+                let update = BookUpdate::builder()
+                    .asset_id(U256::ZERO)
+                    .timestamp(0)
+                    .bids(vec![])
+                    .asks(vec![])
+                    .market(alloy_primitives::FixedBytes([0u8; 32]))
+                    .build();
+                let _ = tx.send(update).await;
             }
         }
     }
@@ -191,13 +151,13 @@ fn render_orderbook(
             .split(*area);
 
         // Asks (top)
-        let ask_rows: Vec<Row> = state.asks[i]
-            .entries
+
+        let ask_rows: Vec<Row> = state.asks.get(i).unwrap_or(&vec![])
             .iter()
-            .map(|(p, s)| {
+            .map(|level| {
                 Row::new(vec![
-                    Cell::from(p.clone()).style(Style::default().fg(Color::Red)),
-                    Cell::from(s.clone()),
+                    Cell::from(level.price.to_string()).style(Style::default().fg(Color::Red)),
+                    Cell::from(level.size.to_string()),
                 ])
             })
             .collect();
@@ -218,16 +178,14 @@ fn render_orderbook(
 
         // Bids (bottom)
         let bid_rows: Vec<Row> = state.bids[i]
-            .entries
             .iter()
-            .map(|(p, s)| {
+            .map(|level| {
                 Row::new(vec![
-                    Cell::from(p.clone()).style(Style::default().fg(Color::Green)),
-                    Cell::from(s.clone()),
+                    Cell::from(level.price.to_string()).style(Style::default().fg(Color::Green)),
+                    Cell::from(level.size.to_string()),
                 ])
             })
             .collect();
-
         let bid_table = Table::new(
             bid_rows,
             [Constraint::Percentage(50), Constraint::Percentage(50)],
@@ -260,7 +218,8 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     eprintln!("Resolving market '{}'…", args.slug);
-    let market= resolve_market(&args.slug).await?;
+
+    let market = resolve_market(&args.slug).await?;
 
     let condition_id = market
         .condition_id
@@ -271,7 +230,8 @@ async fn main() -> Result<()> {
         .context("market has no question")?
         .to_string();
 
-    let tokens: Vec<String> = market.clob_token_ids
+    let tokens: Vec<String> = market
+        .clob_token_ids
         .context("market has no clob_token_ids")?
         .iter()
         .map(|id| id.to_string())
@@ -288,8 +248,8 @@ async fn main() -> Result<()> {
         question,
         tokens: tokens.clone(),
         outcomes,
-        bids: (0..tokens.len()).map(|_| OrderSide::default()).collect(),
-        asks: (0..tokens.len()).map(|_| OrderSide::default()).collect(),
+        bids: vec![Vec::new(); tokens.len()],
+        asks: vec![Vec::new(); tokens.len()],
         last_ts: String::new(),
         status: "Connecting...".into(),
     };
@@ -319,14 +279,24 @@ async fn main() -> Result<()> {
     loop {
         // Drain all pending WS messages
         while let Ok(update) = rx.try_recv() {
-            if update.asset_id.is_empty() {
-                app.status = update.timestamp.clone(); // error message
+            if update.asset_id.is_zero() {
+                app.status = update.timestamp.clone().to_string(); // error message
             } else {
-                app.last_ts = update.timestamp.clone();
+                app.last_ts = update.timestamp.clone().to_string();
                 app.status = format!("Live — {}", update.asset_id);
-                if let Some(idx) = app.tokens.iter().position(|id| *id == update.asset_id) {
-                    app.bids[idx].entries = update.bids;
-                    app.asks[idx].entries = update.asks;
+                if let Some(_) = app
+                    .tokens
+                    .iter()
+                    .position(|id| *id == update.asset_id.to_string())
+                {
+                    if let Some(idx) = app
+                        .tokens
+                        .iter()
+                        .position(|id| *id == update.asset_id.to_string())
+                    {
+                        app.bids[idx] = update.bids.clone();
+                        app.asks[idx] = update.asks.clone();
+                    }
                 }
             }
         }

@@ -4,11 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-alloy = "2.0.4"
-anyhow = "1.0.102"
-futures = "0.3.32"
-polymarket_client_sdk_v2 = { version = "=0.6.0-canary.1", features = ["ws", "clob"] }
-serde_json = "1.0.149"
-tokio = "1.52.2"
-tracing = "0.1.44"
-tracing-subscriber = "0.3.23"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+crossterm = "0.28"
+futures = "0.3"
+polymarket_client_sdk_v2 = { version = "*", features = ["ws", "clob", "gamma"] }
+ratatui = "0.29"
+tokio = { version = "1", features = ["full"] }

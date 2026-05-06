@@ -23,7 +23,7 @@ A terminal order book viewer for Polymarket markets.
 
 ## Architecture
 
-For the full architecture notes, see [src/ARCHITECTURE.md](src/ARCHITECTURE.md).
+For the full architecture notes, see [src/README.md](src/README.md).
 
 | Module | Responsibility |
 | --- | --- |

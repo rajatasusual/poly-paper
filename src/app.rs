@@ -50,20 +50,20 @@ pub async fn run_market_view(market: Market) -> Result<MarketViewExit> {
 
         terminal.draw(|frame| render(frame, &mut app, &mut table_state))?;
 
-        if event::poll(Duration::from_millis(50))? {
-            if let CEvent::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char('q') => break Ok(MarketViewExit::Query),
-                    KeyCode::Esc => break Ok(MarketViewExit::Quit),
-                    KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        break Ok(MarketViewExit::Quit);
-                    }
-                    KeyCode::Down => app.scroll += 1,
-                    KeyCode::Up => app.scroll = app.scroll.saturating_sub(1),
-                    KeyCode::Char('+') => app.tick_size *= Decimal::from(2),
-                    KeyCode::Char('-') => app.tick_size /= Decimal::from(2),
-                    _ => {}
+        if event::poll(Duration::from_millis(50))?
+            && let CEvent::Key(key) = event::read()?
+        {
+            match key.code {
+                KeyCode::Char('q') => break Ok(MarketViewExit::Query),
+                KeyCode::Esc => break Ok(MarketViewExit::Quit),
+                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    break Ok(MarketViewExit::Quit);
                 }
+                KeyCode::Down => app.scroll += 1,
+                KeyCode::Up => app.scroll = app.scroll.saturating_sub(1),
+                KeyCode::Char('+') => app.tick_size *= Decimal::from(2),
+                KeyCode::Char('-') => app.tick_size /= Decimal::from(2),
+                _ => {}
             }
         }
     };

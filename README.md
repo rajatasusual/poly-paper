@@ -1,8 +1,17 @@
 # poly-paper
 
+[![CI](https://github.com/rajatasusual/poly-paper/actions/workflows/ci.yml/badge.svg)](https://github.com/rajatasusual/poly-paper/actions/workflows/ci.yml)
+![Rust](https://img.shields.io/badge/rust-2024-orange)
+![TUI](https://img.shields.io/badge/interface-terminal-blue)
+![Polymarket](https://img.shields.io/badge/data-Polymarket-green)
+
 A terminal order book viewer for Polymarket markets.
 
 `poly-paper` searches active Polymarket events, lets you pick a CLOB-backed market, and streams the selected market's order book into a Ratatui interface. It shows aggregated bid/ask levels, cumulative size, spread, update latency, and a lightweight trade tape inferred from top-of-book movement.
+
+## Screenshot
+
+![poly-paper order book TUI screenshot placeholder](docs/screenshot.png)
 
 ## Features
 

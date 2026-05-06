@@ -11,10 +11,10 @@ pub async fn ws_task(asset_ids: Vec<U256>, tx: mpsc::Sender<BookUpdate>) -> Resu
     let mut stream = Box::pin(client.subscribe_orderbook(asset_ids)?);
 
     while let Some(result) = stream.next().await {
-        if let Ok(book) = result {
-            if tx.send(book).await.is_err() {
-                break;
-            }
+        if let Ok(book) = result
+            && tx.send(book).await.is_err()
+        {
+            break;
         }
     }
 

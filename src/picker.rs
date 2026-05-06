@@ -54,20 +54,19 @@ pub async fn prompt_for_market() -> Result<Option<Market>> {
                     }
                 }
                 _ => {
-                    if let Ok(index) = selection.parse::<usize>() {
-                        if index > 0 {
-                            if let Some(event) = event_page.choices.get(index - 1) {
-                                match prompt_for_event_market(event)? {
-                                    MarketPickerResult::Selected(market) => {
-                                        return Ok(Some(market));
-                                    }
-                                    MarketPickerResult::Back => {}
-                                    MarketPickerResult::Query => break,
-                                    MarketPickerResult::Quit => return Ok(None),
-                                }
-                                continue;
+                    if let Ok(index) = selection.parse::<usize>()
+                        && index > 0
+                        && let Some(event) = event_page.choices.get(index - 1)
+                    {
+                        match prompt_for_event_market(event)? {
+                            MarketPickerResult::Selected(market) => {
+                                return Ok(Some(*market));
                             }
+                            MarketPickerResult::Back => {}
+                            MarketPickerResult::Query => break,
+                            MarketPickerResult::Quit => return Ok(None),
                         }
+                        continue;
                     }
 
                     query = selection;
@@ -105,12 +104,12 @@ fn prompt_for_event_market(event: &EventChoice) -> Result<MarketPickerResult> {
                 }
             }
             _ => {
-                if let Ok(index) = selection.parse::<usize>() {
-                    if index > 0 {
-                        let market_index = page * MARKET_PAGE_SIZE + index - 1;
-                        if let Some(market) = event.markets.get(market_index) {
-                            return Ok(MarketPickerResult::Selected(market.clone()));
-                        }
+                if let Ok(index) = selection.parse::<usize>()
+                    && index > 0
+                {
+                    let market_index = page * MARKET_PAGE_SIZE + index - 1;
+                    if let Some(market) = event.markets.get(market_index) {
+                        return Ok(MarketPickerResult::Selected(Box::new(market.clone())));
                     }
                 }
 

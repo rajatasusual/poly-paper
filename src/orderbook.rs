@@ -52,24 +52,24 @@ impl AppState {
         let new_bid = self.bids.keys().next_back().cloned();
         let new_ask = self.asks.keys().next().cloned();
 
-        if let (Some(ob), Some(nb)) = (old_bid, new_bid) {
-            if nb < ob {
-                self.trades.push_front(Trade {
-                    price: nb,
-                    size: Decimal::from(1),
-                    side: TradeSide::Sell,
-                });
-            }
+        if let (Some(ob), Some(nb)) = (old_bid, new_bid)
+            && nb < ob
+        {
+            self.trades.push_front(Trade {
+                price: nb,
+                size: Decimal::from(1),
+                side: TradeSide::Sell,
+            });
         }
 
-        if let (Some(oa), Some(na)) = (old_ask, new_ask) {
-            if na > oa {
-                self.trades.push_front(Trade {
-                    price: na,
-                    size: Decimal::from(1),
-                    side: TradeSide::Buy,
-                });
-            }
+        if let (Some(oa), Some(na)) = (old_ask, new_ask)
+            && na > oa
+        {
+            self.trades.push_front(Trade {
+                price: na,
+                size: Decimal::from(1),
+                side: TradeSide::Buy,
+            });
         }
 
         if self.trades.len() > 20 {

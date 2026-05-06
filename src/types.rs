@@ -75,7 +75,7 @@ pub enum MarketViewExit {
 }
 
 pub enum MarketPickerResult {
-    Selected(Market),
+    Selected(Box<Market>),
     Back,
     Query,
     Quit,

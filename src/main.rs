@@ -1,67 +1,76 @@
-use std::str::FromStr;
-use std::time::Duration;
+use std::{collections::BTreeMap, str::FromStr, time::Duration};
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use crossterm::{
     event::{self, Event, KeyCode},
     execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use futures::StreamExt;
 use polymarket_client_sdk_v2::{
-    clob::ws::Client as wsClient, gamma::Client as gammaClient, types::U256,
-};
-use polymarket_client_sdk_v2::{
-    clob::ws::{BookUpdate, types::response::OrderBookLevel},
-    gamma::types::{request::MarketBySlugRequest, response::Market}
+    clob::ws::{BookUpdate, Client as wsClient},
+    gamma::{types::{request::MarketBySlugRequest, response::Market}, Client as gammaClient},
+    types::{Decimal, U256},
 };
 use ratatui::{
-    Terminal,
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Layout},
     style::{Color, Modifier, Style},
     text::Span,
-    widgets::{Block, Borders, Cell, Row, Table, TableState},
+    widgets::{Block, Borders, Cell, Row, Table},
+    Terminal,
 };
 use tokio::sync::mpsc;
 
-// ── CLI ──────────────────────────────────────────────────────────────────────
+// ── CLI ─────────────────────────────────────────
 
 #[derive(Parser)]
-#[command(about = "Poly-Paper TUI")]
 struct Args {
-    /// Market slug, e.g. "will-trump-win-2024"
     slug: String,
 }
 
-// ── App state ─────────────────────────────────────────────────────────────────
+// ── STATE ───────────────────────────────────────
 
 struct AppState {
     slug: String,
     question: String,
-    condition_id: String,
-    tokens: Vec<String>,
-    outcomes: Vec<String>,
-    bids: Vec<Vec<OrderBookLevel>>,
-    asks: Vec<Vec<OrderBookLevel>>,
+
+    bids: BTreeMap<Decimal, Decimal>,
+    asks: BTreeMap<Decimal, Decimal>,
+
+    tick_size: Decimal,
+
     last_ts: String,
-    status: String,
 }
 
-// ── Gamma + CLOB REST helpers ─────────────────────────────────────────────────
+// ── HELPERS ─────────────────────────────────────
 
-/// Resolves a slug to (condition_id_string, question, asset_ids, outcomes) via the Gamma SDK client.
 async fn resolve_market(slug: &str) -> Result<Market> {
     let client = gammaClient::default();
-    let market = client
+    Ok(client
         .market_by_slug(&MarketBySlugRequest::builder().slug(slug).build())
-        .await?;
-
-    Ok(market)
+        .await?)
 }
 
-// ── WebSocket task ────────────────────────────────────────────────────────────
+fn bar(size: &Decimal) -> String {
+    let n = (size.as_f64() * 10.0) as usize;
+    "█".repeat(n.min(20))
+}
+
+fn aggregate(
+    map: &BTreeMap<Decimal, Decimal>,
+    tick: Decimal,
+) -> BTreeMap<Decimal, Decimal> {
+    let mut out = BTreeMap::new();
+    for (p, s) in map {
+        let k = (*p / tick).floor() * tick;
+        *out.entry(k).or_insert(Decimal::ZERO) += *s;
+    }
+    out
+}
+
+// ── WS ──────────────────────────────────────────
 
 async fn ws_task(asset_ids: Vec<String>, tx: mpsc::Sender<BookUpdate>) -> Result<()> {
     let ids: Vec<U256> = asset_ids
@@ -70,250 +79,205 @@ async fn ws_task(asset_ids: Vec<String>, tx: mpsc::Sender<BookUpdate>) -> Result
         .collect::<Result<_>>()?;
 
     let client = wsClient::default();
-    let stream = client.subscribe_orderbook(ids)?;
-    let mut stream = Box::pin(stream);
+    let mut stream = Box::pin(client.subscribe_orderbook(ids)?);
 
     while let Some(result) = stream.next().await {
         match result {
             Ok(book) => {
-                let bids: Vec<OrderBookLevel> = book.bids.iter().take(10).cloned().collect();
-                let asks: Vec<OrderBookLevel> = book.asks.iter().take(10).cloned().collect();
                 let update = BookUpdate::builder()
                     .asset_id(book.asset_id)
                     .timestamp(book.timestamp)
-                    .bids(bids)
-                    .asks(asks)
+                    .bids(book.bids.iter().take(20).cloned().collect())
+                    .asks(book.asks.iter().take(20).cloned().collect())
                     .market(book.market)
                     .build();
+
                 if tx.send(update).await.is_err() {
                     break;
                 }
             }
-            Err(_) => {
-                let update = BookUpdate::builder()
-                    .asset_id(U256::ZERO)
-                    .timestamp(0)
-                    .bids(vec![])
-                    .asks(vec![])
-                    .market(alloy_primitives::FixedBytes([0u8; 32]))
-                    .build();
-                let _ = tx.send(update).await;
-            }
+            Err(_) => {}
         }
     }
     Ok(())
 }
 
-// ── UI rendering ──────────────────────────────────────────────────────────────
+// ── RENDER ──────────────────────────────────────
 
-fn render_orderbook(
-    frame: &mut ratatui::Frame,
-    state: &AppState,
-    table_states: &mut Vec<TableState>,
-) {
-    let outer = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(0),
-            Constraint::Length(1),
-        ])
-        .split(frame.area());
+fn render(frame: &mut ratatui::Frame, app: &AppState) {
+    let layout = Layout::vertical([
+        Constraint::Length(3),
+        Constraint::Min(0),
+        Constraint::Length(1),
+    ])
+    .split(frame.area());
 
-    // Header
-    let header_block = Block::default()
-        .borders(Borders::ALL)
-        .title(format!(" {} ", state.slug))
-        .title(format!(" ({}) ", state.condition_id));
-    let header_inner = header_block.inner(outer[0]);
-    frame.render_widget(header_block, outer[0]);
-    frame.render_widget(
-        ratatui::widgets::Paragraph::new(format!(
-            "{} | last update: {}",
-            state.question, state.last_ts
-        )),
-        header_inner,
-    );
+    let best_bid = app.bids.keys().next_back().cloned();
+    let best_ask = app.asks.keys().next().cloned();
 
-    // One column per outcome
-    let n = state.outcomes.len().max(1);
-    let cols: Vec<Constraint> = (0..n).map(|_| Constraint::Ratio(1, n as u32)).collect();
-    let outcome_areas = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(cols)
-        .split(outer[1]);
-
-    for (i, area) in outcome_areas.iter().enumerate() {
-        let label = state.outcomes.get(i).cloned().unwrap_or_default();
-        let sides = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])
-            .split(*area);
-
-        // Asks (top)
-
-        let ask_rows: Vec<Row> = state.asks.get(i).unwrap_or(&vec![])
-            .iter()
-            .map(|level| {
-                Row::new(vec![
-                    Cell::from(level.price.to_string()).style(Style::default().fg(Color::Red)),
-                    Cell::from(level.size.to_string()),
-                ])
-            })
-            .collect();
-
-        let ask_table = Table::new(
-            ask_rows,
-            [Constraint::Percentage(50), Constraint::Percentage(50)],
-        )
-        .header(
-            Row::new(vec!["Price", "Size"]).style(Style::default().add_modifier(Modifier::BOLD)),
-        )
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!(" {label} — Asks ")),
-        );
-        frame.render_stateful_widget(ask_table, sides[0], &mut table_states[i * 2]);
-
-        // Bids (bottom)
-        let bid_rows: Vec<Row> = state.bids[i]
-            .iter()
-            .map(|level| {
-                Row::new(vec![
-                    Cell::from(level.price.to_string()).style(Style::default().fg(Color::Green)),
-                    Cell::from(level.size.to_string()),
-                ])
-            })
-            .collect();
-        let bid_table = Table::new(
-            bid_rows,
-            [Constraint::Percentage(50), Constraint::Percentage(50)],
-        )
-        .header(
-            Row::new(vec!["Price", "Size"]).style(Style::default().add_modifier(Modifier::BOLD)),
-        )
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!(" {label} — Bids ")),
-        );
-        frame.render_stateful_widget(bid_table, sides[1], &mut table_states[i * 2 + 1]);
+    if best_bid.is_none() || best_ask.is_none() {
+        return;
     }
 
-    // Status bar
+    let best_bid = best_bid.unwrap();
+    let best_ask = best_ask.unwrap();
+
+    let bids = aggregate(&app.bids, app.tick_size);
+    let asks = aggregate(&app.asks, app.tick_size);
+
+    let mut prices: Vec<Decimal> = bids
+        .keys()
+        .chain(asks.keys())
+        .cloned()
+        .collect();
+
+    prices.sort_by(|a, b| b.cmp(a));
+    prices.dedup();
+
+    let mut cum_bid = Decimal::ZERO;
+    let mut cum_ask = Decimal::ZERO;
+
+    let top_n = 5;
+    let bid_sum: Decimal = bids.values().take(top_n).cloned().sum();
+    let ask_sum: Decimal = asks.values().take(top_n).cloned().sum();
+
+    let imbalance = if ask_sum.is_zero() {
+        Decimal::ZERO
+    } else {
+        bid_sum / ask_sum
+    };
+
+    let rows: Vec<Row> = prices.iter().map(|price| {
+        let bid = bids.get(price).cloned().unwrap_or_default();
+        let ask = asks.get(price).cloned().unwrap_or_default();
+
+        cum_bid += bid;
+        cum_ask += ask;
+
+        let is_best = *price == best_bid || *price == best_ask;
+
+        let price_style = if is_best {
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+
+        Row::new(vec![
+            Cell::from(format!("{:.2}", cum_bid)).style(Style::default().fg(Color::Green)),
+            Cell::from(format!("{} {:.2}", bar(&bid), bid)).style(Style::default().fg(Color::Green)),
+            Cell::from(format!("{:.4}", price)).style(price_style),
+            Cell::from(format!("{} {:.2}", bar(&ask), ask)).style(Style::default().fg(Color::Red)),
+            Cell::from(format!("{:.2}", cum_ask)).style(Style::default().fg(Color::Red)),
+        ])
+    }).collect();
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(10),
+            Constraint::Length(16),
+            Constraint::Length(12),
+            Constraint::Length(16),
+            Constraint::Length(10),
+        ],
+    )
+    .header(Row::new(vec!["CumBid", "Bid", "Price", "Ask", "CumAsk"]))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(format!(
+                " {} | Imb {:.2} | Spread {:.4} ",
+                app.slug,
+                imbalance,
+                best_ask - best_bid
+            )),
+    );
+
+    frame.render_widget(table, layout[1]);
+
     frame.render_widget(
         ratatui::widgets::Paragraph::new(Span::styled(
-            format!(" {}  [q] quit", state.status),
+            format!("{} | {}", app.question, app.last_ts),
             Style::default().fg(Color::DarkGray),
         )),
-        outer[2],
+        layout[0],
+    );
+
+    frame.render_widget(
+        ratatui::widgets::Paragraph::new("[q] quit | +/- aggregation"),
+        layout[2],
     );
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
+// ── MAIN ────────────────────────────────────────
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    eprintln!("Resolving market '{}'…", args.slug);
-
     let market = resolve_market(&args.slug).await?;
 
-    let condition_id = market
-        .condition_id
-        .context("market has no condition_id")?
-        .to_string();
-    let question = market
-        .question
-        .context("market has no question")?
-        .to_string();
+    let question = market.question.context("no question")?;
 
     let tokens: Vec<String> = market
         .clob_token_ids
-        .context("market has no clob_token_ids")?
+        .context("no tokens")?
         .iter()
-        .map(|id| id.to_string())
+        .map(|x| x.to_string())
         .collect();
 
-    let outcomes = market.outcomes.context("market has no outcomes")?.clone();
-
-    eprintln!("Found {} tokens, connecting to WS…", tokens.len());
-
-    // Build AppState directly from (id, outcome) pairs
     let mut app = AppState {
-        condition_id,
-        slug: args.slug.clone(),
+        slug: args.slug,
         question,
-        tokens: tokens.clone(),
-        outcomes,
-        bids: vec![Vec::new(); tokens.len()],
-        asks: vec![Vec::new(); tokens.len()],
+        bids: BTreeMap::new(),
+        asks: BTreeMap::new(),
+        tick_size: Decimal::from_str("0.01")?,
         last_ts: String::new(),
-        status: "Connecting...".into(),
     };
 
-    // WS → UI channel
-    let (tx, mut rx) = mpsc::channel::<BookUpdate>(64);
-    let tokens_clone = app.tokens.clone();
-    tokio::spawn(async move {
-        if let Err(e) = ws_task(tokens_clone, tx).await {
-            eprintln!("WS error: {e}");
-        }
-    });
+    let (tx, mut rx) = mpsc::channel(64);
 
-    // Terminal setup
+    tokio::spawn(ws_task(tokens, tx));
+
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
 
-    let n = app.outcomes.len();
-    let mut table_states: Vec<TableState> = (0..n * 2).map(|_| TableState::default()).collect();
-
-    app.status = "Connected — waiting for data…".into();
-
-    // Main loop
     loop {
-        // Drain all pending WS messages
         while let Ok(update) = rx.try_recv() {
-            if update.asset_id.is_zero() {
-                app.status = update.timestamp.clone().to_string(); // error message
-            } else {
-                app.last_ts = update.timestamp.clone().to_string();
-                app.status = format!("Live — {}", update.asset_id);
-                if let Some(_) = app
-                    .tokens
-                    .iter()
-                    .position(|id| *id == update.asset_id.to_string())
-                {
-                    if let Some(idx) = app
-                        .tokens
-                        .iter()
-                        .position(|id| *id == update.asset_id.to_string())
-                    {
-                        app.bids[idx] = update.bids.clone();
-                        app.asks[idx] = update.asks.clone();
-                    }
+            app.last_ts = update.timestamp.to_string();
+
+            app.bids.clear();
+            app.asks.clear();
+
+            for l in update.bids {
+                if l.size > Decimal::ZERO {
+                    app.bids.insert(l.price, l.size);
+                }
+            }
+
+            for l in update.asks {
+                if l.size > Decimal::ZERO {
+                    app.asks.insert(l.price, l.size);
                 }
             }
         }
 
-        terminal.draw(|f| render_orderbook(f, &app, &mut table_states))?;
+        terminal.draw(|f| render(f, &app))?;
 
-        // Input with short poll to stay responsive
         if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                if matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
-                    break;
+            if let Event::Key(k) = event::read()? {
+                match k.code {
+                    KeyCode::Char('q') => break,
+                    KeyCode::Char('+') => app.tick_size *= Decimal::from(2),
+                    KeyCode::Char('-') => app.tick_size /= Decimal::from(2),
+                    _ => {}
                 }
             }
         }
     }
 
-    // Restore terminal
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     Ok(())

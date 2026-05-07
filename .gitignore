@@ -25,3 +25,4 @@ Cargo.lock
 
 # Optional: backup files
 *.orig
+/logs/

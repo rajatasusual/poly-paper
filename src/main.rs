@@ -51,6 +51,7 @@ async fn main() -> Result<()> {
 
         match run_market_view(market).await? {
             MarketViewExit::Query => {}
+            MarketViewExit::MarketClosed => {}
             MarketViewExit::Quit => break,
         }
     }

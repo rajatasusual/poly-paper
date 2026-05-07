@@ -1,4 +1,8 @@
-use std::{io, time::Duration};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use anyhow::Result;
 use crossterm::{
@@ -11,9 +15,10 @@ use ratatui::{Terminal, backend::CrosstermBackend, widgets::TableState};
 use tokio::sync::mpsc;
 
 use crate::{
+    gamma::resolve_market,
     render::render,
     session::market_session,
-    types::{MarketSession, MarketViewExit},
+    types::{MarketSession, MarketViewExit, PaperTrade},
     ws::ws_task,
 };
 
@@ -32,6 +37,21 @@ pub async fn run_market_view(market: Market) -> Result<MarketViewExit> {
     let ws_handle = tokio::spawn(async move {
         let _ = ws_task(asset_ids, tx).await;
     });
+    let (closed_tx, mut closed_rx) = mpsc::channel(1);
+    let closed_slug = app.slug.clone();
+    let closed_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            match resolve_market(&closed_slug).await {
+                Ok(market) if market.closed.unwrap_or(false) => {
+                    let _ = closed_tx.send(()).await;
+                    break;
+                }
+                Ok(_) | Err(_) => {}
+            }
+        }
+    });
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -47,6 +67,10 @@ pub async fn run_market_view(market: Market) -> Result<MarketViewExit> {
         while let Ok(update) = rx.try_recv() {
             app.apply_book_update(update);
         }
+        if closed_rx.try_recv().is_ok() {
+            app.paper_trade.finish("market_closed");
+            break Ok(MarketViewExit::MarketClosed);
+        }
 
         terminal.draw(|frame| render(frame, &mut app, &mut table_state))?;
 
@@ -54,9 +78,16 @@ pub async fn run_market_view(market: Market) -> Result<MarketViewExit> {
             && let CEvent::Key(key) = event::read()?
         {
             match key.code {
-                KeyCode::Char('q') => break Ok(MarketViewExit::Query),
-                KeyCode::Esc => break Ok(MarketViewExit::Quit),
+                KeyCode::Char('q') => {
+                    app.paper_trade.finish("user_query");
+                    break Ok(MarketViewExit::Query);
+                }
+                KeyCode::Esc => {
+                    app.paper_trade.finish("user_quit");
+                    break Ok(MarketViewExit::Quit);
+                }
                 KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    app.paper_trade.finish("user_quit");
                     break Ok(MarketViewExit::Quit);
                 }
                 KeyCode::Down => app.scroll += 1,
@@ -69,5 +100,39 @@ pub async fn run_market_view(market: Market) -> Result<MarketViewExit> {
     };
 
     ws_handle.abort();
+    closed_handle.abort();
+    drop(terminal);
+    drop(_terminal_guard);
+    let log_path = save_paper_trade_log(&app.paper_trade)?;
+    println!("Saved paper trade log: {}", log_path.display());
     loop_result
+}
+
+fn save_paper_trade_log(paper_trade: &PaperTrade) -> Result<PathBuf> {
+    let logs_dir = Path::new("logs");
+    fs::create_dir_all(logs_dir)?;
+
+    let file_name = format!("{}.json", safe_file_stem(&paper_trade.slug));
+    let path = logs_dir.join(file_name);
+    fs::write(&path, serde_json::to_string_pretty(paper_trade)?)?;
+    Ok(path)
+}
+
+fn safe_file_stem(value: &str) -> String {
+    let stem = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let stem = stem.trim_matches('-');
+    if stem.is_empty() {
+        "selected-market".to_owned()
+    } else {
+        stem.to_owned()
+    }
 }

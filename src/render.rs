@@ -228,18 +228,24 @@ pub fn render(frame: &mut ratatui::Frame, app: &mut AppState, table_state: &mut 
         .iter()
         .map(|t| {
             let color = match t.side {
-                TradeSide::Buy => Color::Green,
-                TradeSide::Sell => Color::Red,
+                TradeSide::BuyCompleteSet => Color::Green,
+                TradeSide::SellCompleteSet => Color::Red,
             };
             Span::styled(
-                format!("{} {:.2}@{:.4} ", t.side.label(), t.size, t.price),
+                format!(
+                    "{} {:.2}@{:.4} +{:.4} ",
+                    t.side.label(),
+                    t.size,
+                    t.price,
+                    t.profit
+                ),
                 Style::default().fg(color),
             )
         })
         .collect();
 
     let tape = if tape.is_empty() {
-        Line::from(Span::styled("No inferred trades yet", muted()))
+        Line::from(Span::styled("No arbitrage executions yet", muted()))
     } else {
         Line::from(tape)
     };
@@ -247,8 +253,8 @@ pub fn render(frame: &mut ratatui::Frame, app: &mut AppState, table_state: &mut 
     frame.render_widget(
         Paragraph::new(vec![
             Line::from(vec![
-                Span::styled("Trades ", header_style()),
-                Span::styled("(inferred)", muted()),
+                Span::styled("Arbitrage ", header_style()),
+                Span::styled("(complete-set)", muted()),
             ]),
             tape,
         ])

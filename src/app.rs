@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
+use chrono::Utc;
 use crossterm::{
     event::{self, Event as CEvent, KeyCode, KeyModifiers},
     execute,
@@ -32,23 +33,37 @@ impl Drop for TerminalGuard {
 }
 
 pub async fn run_market_view(market: Market) -> Result<MarketViewExit> {
+    let market_end_date = market.end_date.clone();
     let MarketSession { mut app, asset_ids } = market_session(market)?;
     let (tx, mut rx) = mpsc::channel(64);
     let ws_handle = tokio::spawn(async move {
         let _ = ws_task(asset_ids, tx).await;
     });
+
     let (closed_tx, mut closed_rx) = mpsc::channel(1);
     let closed_slug = app.slug.clone();
     let closed_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        let mut fast_tick = tokio::time::interval(Duration::from_millis(10));
+        let mut resolve_tick = tokio::time::interval(Duration::from_secs(1));
         loop {
-            interval.tick().await;
-            match resolve_market(&closed_slug).await {
-                Ok(market) if market.closed.unwrap_or(false) => {
-                    let _ = closed_tx.send(()).await;
-                    break;
+            tokio::select! {
+                _ = fast_tick.tick() => {
+                    if let Some(end_date) = market_end_date.as_ref() {
+                        if Utc::now() >= *end_date {
+                            let _ = closed_tx.send(()).await;
+                            break;
+                        }
+                    }
                 }
-                Ok(_) | Err(_) => {}
+                _ = resolve_tick.tick() => {
+                    match resolve_market(&closed_slug).await {
+                        Ok(market) if market.closed.unwrap_or(false) => {
+                            let _ = closed_tx.send(()).await;
+                            break;
+                        }
+                        Ok(_) | Err(_) => {}
+                    }
+                }
             }
         }
     });

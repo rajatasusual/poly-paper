@@ -49,42 +49,38 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, app: &mut A
         terminal.draw(|frame| {
             app.render(frame);
         })?;
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char('q') => {
-                        app.should_quit = true;
-                    }
-                    KeyCode::Down => {
-                        app.next();
-                    }
-                    KeyCode::Up => {
-                        app.previous();
-                    }
-                    KeyCode::Char('r') => {
-                        app.reload()?;
-                    }
-                    KeyCode::Char('/') => {
-                        app.filter_mode = true;
-                    }
-                    KeyCode::Esc => {
-                        app.filter_mode = false;
-                        app.filter_input.clear();
-                    }
-                    KeyCode::Backspace => {
-                        if app.filter_mode {
-                            app.filter_input.pop();
-                            app.apply_filter();
-                        }
-                    }
-                    KeyCode::Char(c) => {
-                        if app.filter_mode {
-                            app.filter_input.push(c);
-                            app.apply_filter();
-                        }
-                    }
-                    _ => {}
+        if event::poll(Duration::from_millis(100))?
+            && let Event::Key(key) = event::read()?
+        {
+            match key.code {
+                KeyCode::Char('q') => {
+                    app.should_quit = true;
                 }
+                KeyCode::Down => {
+                    app.next();
+                }
+                KeyCode::Up => {
+                    app.previous();
+                }
+                KeyCode::Char('r') => {
+                    app.reload()?;
+                }
+                KeyCode::Char('/') => {
+                    app.filter_mode = true;
+                }
+                KeyCode::Esc => {
+                    app.filter_mode = false;
+                    app.filter_input.clear();
+                }
+                KeyCode::Backspace if app.filter_mode => {
+                    app.filter_input.pop();
+                    app.apply_filter();
+                }
+                KeyCode::Char(c) if app.filter_mode => {
+                    app.filter_input.push(c);
+                    app.apply_filter();
+                }
+                _ => {}
             }
         }
         if app.should_quit {

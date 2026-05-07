@@ -33,7 +33,7 @@ impl Drop for TerminalGuard {
 }
 
 pub async fn run_market_view(market: Market) -> Result<MarketViewExit> {
-    let market_end_date = market.end_date.clone();
+    let market_end_date = market.end_date;
     let MarketSession { mut app, asset_ids } = market_session(market)?;
     let (tx, mut rx) = mpsc::channel(64);
     let ws_handle = tokio::spawn(async move {
@@ -48,12 +48,11 @@ pub async fn run_market_view(market: Market) -> Result<MarketViewExit> {
         loop {
             tokio::select! {
                 _ = fast_tick.tick() => {
-                    if let Some(end_date) = market_end_date.as_ref() {
-                        if Utc::now() >= *end_date {
+                    if let Some(end_date) = market_end_date.as_ref()
+                        && Utc::now() >= *end_date {
                             let _ = closed_tx.send(()).await;
                             break;
                         }
-                    }
                 }
                 _ = resolve_tick.tick() => {
                     match resolve_market(&closed_slug).await {

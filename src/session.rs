@@ -55,7 +55,7 @@ pub fn market_session(market: Market) -> Result<MarketSession> {
             last_latency_ms: 0,
             trades: VecDeque::new(),
             paper_trade,
-            tick_size: Decimal::from_str("0.01")?,
+            tick_size: Decimal::from_str("0.01").unwrap(),
             scroll: 0,
             last_ts: String::new(),
         },

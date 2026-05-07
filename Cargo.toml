@@ -9,6 +9,10 @@ chrono = "0.4.44"
 clap = { version = "4", features = ["derive"] }
 crossterm = "0.28"
 futures = "0.3"
+indexmap = "2"
+itertools = "0.13"
+notify = "6"
+parking_lot = "0.12"
 polymarket_client_sdk_v2 = { version = "*", features = ["ws", "clob", "gamma"] }
 ratatui = "0.29"
 regex = "1.12.3"

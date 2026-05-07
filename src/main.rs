@@ -1,6 +1,8 @@
 use anyhow::Result;
 use clap::Parser;
 
+mod analyst;
+
 mod app;
 mod gamma;
 mod orderbook;
@@ -18,6 +20,25 @@ use regex::Regex;
 use types::MarketViewExit;
 
 // ── CLI ─────────────────────────────────────────
+
+#[derive(Parser, Debug)]
+#[command(author, version, about)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum Commands {
+    Analyst,
+
+    Market {
+        slug: Option<String>,
+        series: Option<i16>,
+    },
+}
+
+// - HELPER FUNCTIONS ───────────────────────────────
 //Hack to get the next market slug based on the current one and the series increment. Assumes slugs are in the format "prefix-timestamp".
 // Waiting for gamma to provide a more robust way to do this, but this should work for now.
 fn next_market_slug(slug: &str, series: i16) -> Option<String> {
@@ -30,19 +51,8 @@ fn next_market_slug(slug: &str, series: i16) -> Option<String> {
     Some(format!("{prefix}-{next_timestamp}"))
 }
 
-#[derive(Parser, Debug)]
-struct Args {
-    slug: Option<String>,
-    series: Option<i16>,
-}
-
-// ── MAIN ────────────────────────────────────────
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    let args = Args::parse();
-    let series = args.series.unwrap_or(0);
-    let mut next_market = if let Some(slug) = args.slug.as_deref() {
+async fn run_market_mode(slug: Option<String>, series: Option<i16>) -> Result<()> {
+    let mut next_market = if let Some(slug) = slug.as_deref() {
         match resolve_market(slug).await {
             Ok(market) => Some(market),
             Err(err) => {
@@ -53,7 +63,6 @@ async fn main() -> Result<()> {
     } else {
         None
     };
-
     loop {
         let market = if let Some(market) = next_market.take() {
             market
@@ -69,8 +78,8 @@ async fn main() -> Result<()> {
             MarketViewExit::MarketClosed => {
                 if let Some(current_slug) = current_slug.as_deref() {
                     println!("Market \"{current_slug}\" is closed.");
-                    
-                    if let Some(next_slug) = next_market_slug(current_slug, series) {
+
+                    if let Some(next_slug) = next_market_slug(current_slug, series.unwrap()) {
                         match resolve_market(next_slug.as_str()).await {
                             Ok(market) => next_market = Some(market),
                             Err(err) => println!("Could not resolve next market: {err}"),
@@ -81,6 +90,29 @@ async fn main() -> Result<()> {
                 }
             }
             MarketViewExit::Quit => break,
+        }
+    }
+
+    Ok(())
+}
+
+// ── MAIN ────────────────────────────────────────
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Some(Commands::Analyst) => {
+            analyst::run().await?;
+        }
+
+        Some(Commands::Market { slug, series }) => {
+            run_market_mode(slug, series).await?;
+        }
+
+        None => {
+            analyst::run().await?;
         }
     }
 

@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, time::Instant};
 
 use polymarket_client_sdk_v2::{clob::ws::BookUpdate, types::Decimal};
 
-use crate::types::{AppState, ArbitrageKind, ArbitrageLeg, ArbitrageOpportunity};
+use crate::market::types::{AppState, ArbitrageKind, ArbitrageLeg, ArbitrageOpportunity};
 
 const COMPLETE_SET_PAYOUT: u8 = 1;
 
@@ -165,7 +165,7 @@ mod tests {
 
     use polymarket_client_sdk_v2::types::U256;
 
-    use crate::types::{OrderBook, OutcomeToken, PaperTrade, Trade};
+    use crate::market::types::{OrderBook, OutcomeToken, PaperTrade, Trade};
 
     use super::*;
 

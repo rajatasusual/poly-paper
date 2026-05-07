@@ -6,7 +6,7 @@ use std::{
 use anyhow::{Context, Result};
 use polymarket_client_sdk_v2::{gamma::types::response::Market, types::Decimal};
 
-use crate::types::{AppState, MarketSession, OrderBook, OutcomeToken, PaperTrade};
+use crate::market::types::{AppState, MarketSession, OrderBook, OutcomeToken, PaperTrade};
 
 pub fn market_session(market: Market) -> Result<MarketSession> {
     let slug = market

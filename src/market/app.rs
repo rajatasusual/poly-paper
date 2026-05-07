@@ -16,11 +16,11 @@ use ratatui::{Terminal, backend::CrosstermBackend, widgets::TableState};
 use tokio::sync::mpsc;
 
 use crate::{
-    gamma::resolve_market,
-    render::render,
-    session::market_session,
-    types::{MarketSession, MarketViewExit, PaperTrade},
-    ws::ws_task,
+    market::gamma::resolve_market,
+    market::render::render,
+    market::session::market_session,
+    market::types::{MarketSession, MarketViewExit, PaperTrade},
+    market::ws::ws_task,
 };
 
 struct TerminalGuard;

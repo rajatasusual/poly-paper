@@ -1,6 +1,6 @@
 # Architecture
 
-`poly-paper` is a small async Rust terminal app with two phases:
+`poly-paper` market module is a small async Rust terminal app with two phases:
 
 1. Resolve a market, either from a CLI slug or from an interactive Gamma API search.
 2. Open a live Ratatui order book view backed by Polymarket CLOB websocket snapshots, while running an in-memory paper arbitrage strategy.
@@ -11,6 +11,7 @@ The code is organized around keeping API access, selection prompts, live state m
 
 | Module | Responsibility |
 | --- | --- |
+| analyst | Analyse the market sessions. Read here [analyst/README.md](analyst/README.md) |
 | `main.rs` | CLI entry point. Parses an optional market slug, resolves it through Gamma, and loops between market search and market view. |
 | `app.rs` | Runs the market view. It prepares terminal raw mode/alternate screen, starts the websocket task, polls for market close, receives book updates, handles keyboard input, calls `render`, and writes the final JSON log. |
 | `gamma.rs` | Contains Gamma REST API integration: direct market lookup by slug and active event search. It filters search results down to open markets with CLOB token IDs. |

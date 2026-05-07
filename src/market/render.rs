@@ -10,7 +10,7 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState},
 };
 
-use crate::types::*;
+use crate::market::types::*;
 
 const VISIBLE_LEVELS: usize = 20;
 const BAR_WIDTH: usize = 14;

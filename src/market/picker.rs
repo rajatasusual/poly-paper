@@ -2,9 +2,9 @@ use anyhow::Result;
 use polymarket_client_sdk_v2::gamma::types::response::Market;
 
 use crate::{
-    gamma::search_event_page,
-    prompt::prompt_line,
-    types::{EventChoice, EventSearchPage, MARKET_PAGE_SIZE, MarketPickerResult},
+    market::gamma::search_event_page,
+    market::prompt::prompt_line,
+    market::types::{EventChoice, EventSearchPage, MARKET_PAGE_SIZE, MarketPickerResult},
 };
 
 pub async fn prompt_for_market() -> Result<Option<Market>> {

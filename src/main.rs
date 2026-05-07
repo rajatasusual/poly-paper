@@ -1,23 +1,14 @@
 use anyhow::Result;
 use clap::Parser;
+use regex::Regex;
 
 mod analyst;
+mod market;
 
-mod app;
-mod gamma;
-mod orderbook;
-mod picker;
-mod prompt;
-mod render;
-mod session;
-mod types;
-mod ws;
-
-use app::run_market_view;
-use gamma::resolve_market;
-use picker::prompt_for_market;
-use regex::Regex;
-use types::MarketViewExit;
+use market::app::run_market_view;
+use market::gamma::resolve_market;
+use market::picker::prompt_for_market;
+use market::types::MarketViewExit;
 
 // ── CLI ─────────────────────────────────────────
 
@@ -112,7 +103,7 @@ async fn main() -> Result<()> {
         }
 
         None => {
-            analyst::run().await?;
+            run_market_mode(None, None).await?;
         }
     }
 

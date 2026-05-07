@@ -1,7 +1,5 @@
 use crate::{
-    analyst::loader::load_sessions,
-    analyst::metrics::compute_metrics,
-    analyst::models::Session,
+    analyst::loader::load_sessions, analyst::metrics::compute_metrics, analyst::models::Session,
     analyst::watcher::watch_logs,
 };
 use anyhow::Result;
@@ -10,7 +8,7 @@ use ratatui::{
     prelude::*,
     widgets::*,
 };
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{Receiver, channel};
 pub struct App {
     pub sessions: Vec<Session>,
     pub filtered_sessions: Vec<usize>,
@@ -24,8 +22,7 @@ pub struct App {
 impl App {
     pub fn new(logs_path: &str) -> Result<Self> {
         let sessions = load_sessions(logs_path)?;
-        let filtered_sessions =
-            (0..sessions.len()).collect::<Vec<_>>();
+        let filtered_sessions = (0..sessions.len()).collect::<Vec<_>>();
         let (reload_tx, reload_rx) = channel();
         let _ = watch_logs(logs_path, reload_tx);
         Ok(Self {
@@ -60,10 +57,7 @@ impl App {
                     return true;
                 }
                 session.slug.to_lowercase().contains(&query)
-                    || session
-                        .question
-                        .to_lowercase()
-                        .contains(&query)
+                    || session.question.to_lowercase().contains(&query)
             })
             .map(|(idx, _)| idx)
             .collect();
@@ -91,41 +85,26 @@ impl App {
     pub fn render(&self, frame: &mut Frame) {
         let layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(0),
-                Constraint::Length(3),
-            ])
+            .constraints([Constraint::Min(0), Constraint::Length(3)])
             .split(frame.area());
         let main = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(25),
-                Constraint::Percentage(75),
-            ])
+            .constraints([Constraint::Percentage(25), Constraint::Percentage(75)])
             .split(layout[0]);
         self.render_session_list(frame, main[0]);
         self.render_dashboard(frame, main[1]);
         self.render_footer(frame, layout[1]);
     }
-    fn render_session_list(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-    ) {
+    fn render_session_list(&self, frame: &mut Frame, area: Rect) {
         let items: Vec<ListItem> = self
             .filtered_sessions
             .iter()
             .map(|idx| {
                 let session = &self.sessions[*idx];
-                let pnl = session
-                    .realized_pnl
-                    .parse::<f64>()
-                    .unwrap_or(0.0);
+                let pnl = session.realized_pnl.parse::<f64>().unwrap_or(0.0);
                 ListItem::new(format!(
                     "{}\nPnL: {:.4}\n{}",
-                    session.slug,
-                    pnl,
-                    session.question
+                    session.slug, pnl, session.question
                 ))
             })
             .collect();
@@ -135,26 +114,14 @@ impl App {
             format!("Sessions [{}]", self.filtered_sessions.len())
         };
         let list = List::new(items)
-            .block(
-                Block::default()
-                    .title(title)
-                    .borders(Borders::ALL),
-            )
-            .highlight_style(
-                Style::default()
-                    .bg(Color::Blue)
-                    .fg(Color::White),
-            )
+            .block(Block::default().title(title).borders(Borders::ALL))
+            .highlight_style(Style::default().bg(Color::Blue).fg(Color::White))
             .highlight_symbol("▶ ");
         let mut state = ListState::default();
         state.select(Some(self.selected));
         frame.render_stateful_widget(list, area, &mut state);
     }
-    fn render_dashboard(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-    ) {
+    fn render_dashboard(&self, frame: &mut Frame, area: Rect) {
         let Some(session) = self.selected_session() else {
             return;
         };
@@ -199,18 +166,12 @@ impl App {
             .wrap(Wrap { trim: true });
         frame.render_widget(widget, area);
     }
-    fn render_capital_chart(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-        session: &Session,
-    ) {
+    fn render_capital_chart(&self, frame: &mut Frame, area: Rect, session: &Session) {
         let data: Vec<u64> = session
             .executions
             .iter()
             .map(|exec| {
-                exec
-                    .pending_settlement_payout_after
+                exec.pending_settlement_payout_after
                     .parse::<f64>()
                     .unwrap_or(100.0)
                     .round() as u64
@@ -226,20 +187,12 @@ impl App {
             .data(&data);
         frame.render_widget(sparkline, area);
     }
-    fn render_edge_chart(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-        session: &Session,
-    ) {
+    fn render_edge_chart(&self, frame: &mut Frame, area: Rect, session: &Session) {
         let data: Vec<u64> = session
             .executions
             .iter()
             .map(|exec| {
-                let edge = exec
-                    .guaranteed_profit
-                    .parse::<f64>()
-                    .unwrap_or(0.0);
+                let edge = exec.guaranteed_profit.parse::<f64>().unwrap_or(0.0);
                 (edge * 1000.0) as u64
             })
             .collect();
@@ -253,20 +206,12 @@ impl App {
             .style(Style::default().fg(Color::Yellow));
         frame.render_widget(sparkline, area);
     }
-    fn render_execution_table(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-        session: &Session,
-    ) {
+    fn render_execution_table(&self, frame: &mut Frame, area: Rect, session: &Session) {
         let rows: Vec<Row> = session
             .executions
             .iter()
             .map(|exec| {
-                let edge = exec
-                    .guaranteed_profit
-                    .parse::<f64>()
-                    .unwrap_or(0.0);
+                let edge = exec.guaranteed_profit.parse::<f64>().unwrap_or(0.0);
                 let color = if edge > 0.25 {
                     Color::Green
                 } else if edge > 0.10 {
@@ -293,13 +238,8 @@ impl App {
             ],
         )
         .header(
-            Row::new(vec![
-                "Strategy",
-                "Size",
-                "Package",
-                "Edge",
-            ])
-            .style(Style::default().fg(Color::Cyan)),
+            Row::new(vec!["Strategy", "Size", "Package", "Edge"])
+                .style(Style::default().fg(Color::Cyan)),
         )
         .block(
             Block::default()
@@ -309,13 +249,9 @@ impl App {
         .column_spacing(1);
         frame.render_widget(table, area);
     }
-    fn render_footer(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-    ) {
+    fn render_footer(&self, frame: &mut Frame, area: Rect) {
         let shortcuts = vec![Line::from(
-            "↑↓ Navigate  / Filter  ESC Exit Filter  r Reload  q Quit"
+            "↑↓ Navigate  / Filter  ESC Exit Filter  r Reload  q Quit",
         )];
         let footer = Paragraph::new(shortcuts)
             .block(

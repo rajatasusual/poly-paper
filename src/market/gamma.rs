@@ -7,7 +7,7 @@ use polymarket_client_sdk_v2::gamma::{
     },
 };
 
-use crate::types::{EventChoice, EventSearchPage, SEARCH_PAGE_SIZE};
+use crate::market::types::{EventChoice, EventSearchPage, SEARCH_PAGE_SIZE};
 
 pub async fn resolve_market(slug: &str) -> Result<Market> {
     let client = GammaClient::default();

@@ -9,7 +9,7 @@ A terminal-native Polymarket order book viewer, complete-set arbitrage simulator
 
 `poly-paper` streams live Polymarket CLOB markets into a Ratatui interface, continuously evaluates complete-set arbitrage conditions across all outcomes, executes paper trades in memory, and persists structured execution logs for later analysis.
 
-The system is composed of two major layers:
+The system is composed of two major modules:
 
 1. **Live Trading Runtime**
    - Market discovery

@@ -11,10 +11,10 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
-use std::{env, io, time::Duration};
+use std::{io, time::Duration};
 
-pub async fn run() -> Result<()> {
-    let logs_path = env::args().nth(1).unwrap_or_else(|| "logs".to_string());
+pub async fn run(logs: Option<String>) -> Result<()> {
+    let logs_path = logs.unwrap_or_else(|| "logs".to_string());
     let mut app = App::new(&logs_path)?;
 
     enable_raw_mode()?;

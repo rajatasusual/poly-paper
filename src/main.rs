@@ -21,7 +21,9 @@ struct Cli {
 
 #[derive(clap::Subcommand, Debug)]
 enum Commands {
-    Analyst,
+    Analyst {
+        logs: Option<String>,
+    },
 
     Market {
         slug: Option<String>,
@@ -94,8 +96,8 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Analyst) => {
-            analyst::run().await?;
+        Some(Commands::Analyst { logs }) => {
+            analyst::run(logs).await?;
         }
 
         Some(Commands::Market { slug, series }) => {
